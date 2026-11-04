@@ -6,11 +6,22 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from bridge.core import Store, experiment
-from bridge.robot import JOINTS, PhysicalArm, configure_position_hold
+from bridge.robot import JOINTS, PhysicalArm, configure_position_hold, validate_calibration_ranges
 from bridge.vision import CameraFeed
 
 
 class VisionTests(unittest.TestCase):
+    def test_incomplete_hand_movement_is_not_accepted_as_calibration(self):
+        calibration = {j: SimpleNamespace(range_min=1000, range_max=3000) for j in JOINTS}
+        validate_calibration_ranges(calibration)
+        calibration['shoulder_lift'].range_max = 1006
+        with self.assertRaisesRegex(ValueError, 'shoulder_lift'):
+            validate_calibration_ranges(calibration)
+        calibration['shoulder_lift'].range_max = 3000
+        del calibration['elbow_flex']
+        with self.assertRaisesRegex(ValueError, 'all six'):
+            validate_calibration_ranges(calibration)
+
     def setUp(self):
         self.now = 1000
         self.feed = CameraFeed(clock=lambda: self.now, wall=lambda: self.now)

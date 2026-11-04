@@ -119,7 +119,7 @@ The controller rejects stale observations, replayed revisions, excessive steps, 
 
 Software holds and camera-loss checks require a running bridge. If the laptop loses power, a servo can remain powered at its last target; keep the arm's power disconnect accessible.
 
-The physical adapter is tested against a fake motor bus. Serial communication and a separate supervised, low-torque gripper test have been verified on one SO101; calibration and the calibrated web-control path remain unvalidated on that arm. The separate 2D sandbox needs no hardware.
+Serial communication, corrected motor IDs, manual wrist/gripper calibration, a supervised base sweep, calibrated position holding, and one coordinated powered wrist/gripper trajectory have been verified on one SO101. The wrist/gripper test used a peak speed of 2 units/s and stayed within 0.7 units of tracking error. An elbow test settled 1.3 degrees short and was correctly reported as incomplete. Pickup success and VLA-level speed are not yet established. The separate 2D sandbox needs no hardware.
 
 `scripts/probe_arm.py --port /dev/cu.YOUR_ARM` reads the six expected SO101 motor IDs, raw positions, torque state, and stored calibration registers. Run it with the robot environment's Python. It does not configure the motors, change torque, or send position targets. Stored limits alone do not prove that the arm was properly calibrated or that the current workspace is clear.
 
@@ -133,6 +133,44 @@ python3 scripts/agent.py stop --port 8787
 ```
 
 For the physical arm use `--mode so101`, `connect`, `start`, `observe`, and `jog --joint shoulder_pan --delta 0.5 --revision REVISION`. Review the camera and joint feedback before each step. Observations/actions/notes persist as session context; this does not modify an LLM's weights. Starting an agent session is not an autonomous background agent.
+
+### Smooth motion tools
+
+Start the hardware bridge with `.venv-robot/bin/python -B -m bridge.server --port 8787 --preload-robot` to load the SDK before serving the camera. This does not connect motors. The assistant client can preview joint trajectories with `plan --waypoints FILE`, then execute the returned `--plan-id`. Plans expire after 20 seconds, are single use, and are rejected if the arm moved since planning. Waypoint files are arrays such as `[{"positions":{"wrist_flex":20,"gripper":30}}]`; unspecified joints retain their preceding pose. Values are absolute joint degrees and gripper percentage, using this arm's saved calibration.
+
+`python3 scripts/move_arm.py --waypoints FILE` previews a path. Adding `--execute --experiment EXPERIMENT_ID` starts a stopped, healthy session and runs that path while recording images, feedback, and results under `.armature/motions`. It never silently clears a fault or retries an uncertain movement request. `scripts/agent.py clear_fault --mode so101 --port 8787` acknowledges an inspected fault only after healthy feedback and pose checks; it leaves motion stopped.
+
+The bridge executes coordinated quintic segments on a 30 Hz target schedule, with zero velocity and acceleration at waypoint boundaries. The actual measured rate is recorded. Joint range, requested speed/acceleration, camera freshness, motor current/temperature/voltage, feedback lead, and loop deadlines are checked locally. Small static body-joint offsets receive at most 2 degrees of endpoint trim at 1 degree/s; the gripper never receives this integrating correction. Motion is successful only after measured endpoint error is at most 1 unit for three samples. Stop preempts the sequence and requests a hold. These checks do not infer obstacle clearance from the camera.
+
+Trusted local configuration can set `motion_speed` (default 6 units/s), `motion_acceleration` (default 20 units/s²), and per-joint `motor_settings` containing `Goal_Velocity`, `Acceleration`, and `Torque_Limit`. Settings are bounded and read back before torque is enabled. Torque limits are servo register fractions, not measured joint torque. Speed increases require measured tracking evidence; raising a torque cap does not correct a timing or tracking problem when the motor is below that cap. Manufacturer register definitions: [ST servo memory map](https://docs.waveshare.com/Memory_Map_Explanation/ST_Servo_Memory_Map_Explanation).
+
+This is a local trajectory executor, not a trained VLA or an implementation of flow-policy RTC. It removes per-step assistant round trips, while camera interpretation and high-level decisions remain with the assistant. [LeRobot RTC](https://huggingface.co/docs/lerobot/rtc) additionally conditions asynchronously predicted policy chunks to maintain continuity across inference delays.
+
+### Learned visual controller
+
+`controller/` adds a general local feedback loop: observe a tracked image point and joint state, predict visual effects of candidate joint actions, choose an action against a visual goal, execute a short chunk, and learn from the measured outcome. There are no object-specific motion recipes or built-in joint-to-image directions. A regularized local linear dynamics model learns those directions from probes. Action search evaluates 2,050 continuous candidates, including a damped inverse solution and a zero-action baseline, with penalties for movement and model uncertainty.
+
+This is a small system-identification baseline, not a pretrained VLA, full image world model, or RL update to language-model weights. The predictor is deliberately separate from motor execution and visual tracking so a learned visual representation or nonlinear predictor can replace it. The experience log records images, commanded actions, actual joint changes, predicted and observed visual changes, timestamps, timing skew, and prediction errors computed **before** each new example is used for training. These logs are not yet a synchronized LeRobot training dataset.
+
+The first physical test used four probes of two joints, then reached a new image target with two model-selected actions: pixel error decreased **7.48 → 1.84 → 1.01** in **3.12 seconds**, excluding identification. Prediction errors on those two new transitions were 0.35 and 0.22 pixels. A second session used four fresh probes and one persistent model across three new target requests: final errors were **1.41, 0.62, and 0.85 pixels**, taking **3.66, 4.65, and 3.15 seconds**. These four nearby image-space goals do not establish 3D accuracy, grasp success, broad task generalization, or VLA-level speed.
+
+The controller keeps unmodeled joints fixed, limits each step to 2 degrees, limits the session to a ±6-degree envelope, and stops on tracking loss, camera/reference movement, motor faults, or repeated worsening visual error. Underexcited models cannot choose actions. The current camera supplies up to 2 frames/s; goal control still settles between chunks. Continuous velocity control, depth/contact inference, representation learning, and learning across camera changes remain future work. A tracked pixel reaching a target is not proof that the gripper touched or grasped an object.
+
+### Native assistant tools
+
+Install the isolated tool environment (Python 3.12):
+
+```bash
+uv venv .venv-tools --python 3.12
+uv pip install --python .venv-tools/bin/python -r configs/controller-requirements.txt
+.venv-tools/bin/python scripts/armature_mcp.py --port 8787
+```
+
+The stdio MCP server exposes `arm_observe`, `arm_start`, `arm_plan`, `arm_execute`, `arm_stop`, `visual_initialize`, `visual_probe`, `visual_reach`, and `visual_status`. Observation and visual-action results return the camera image inline alongside feedback. It wraps the existing authenticated bridge; it never opens another serial connection, connects motors at startup, clears faults, or changes torque caps. It needs no separate model API key.
+
+Register it in the host's MCP configuration using the absolute tool-environment Python path as `command`, the absolute `scripts/armature_mcp.py` path as its argument, and this checkout as `cwd`. In Codex, trusted project configuration can live in `.codex/config.toml`; allow a 60-second tool timeout and reload the host's MCP configuration to discover newly registered tools. Local paths and credentials stay out of Git. [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp), [MCP Python SDK](https://py.sdk.modelcontextprotocol.io/).
+
+For a standalone experiment, `scripts/visual_control.py --spec FILE` previews tracking without movement. Add `--execute --experiment EXPERIMENT_ID` to run the specified probes and visual goals. The JSON spec contains `joints`, `tracked_box` and `static_box` as `[x,y,width,height]`, `probes` as relative joint deltas, and `goals` as image coordinates. Choose a textured rigid moving patch and a textured stationary reference, with the full working area visible. The model selects the reaching actions. Its state persists across targets in one process; a new process requires fresh identification. Images and learned transitions are saved only under ignored `.armature/controllers/` directories.
 
 ## Runner contract
 
@@ -152,6 +190,7 @@ Only supplied values are plotted. One local runner executes at a time. Stop term
 npm test
 python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 node --check web/app.js
+.venv-tools/bin/python -B -m unittest discover -s tests -p 'test_controller.py' -v
 ```
 
 Tests cover camera opt-in/lifecycle, config validation, export quoting, backup validation, SQLite persistence, real toy job completion and cancellation, HTTP authentication/CORS/pairing, episode review, structured grading failures, bounded control against a fake motor bus, and Slurm submission idempotence, cancellation, log offsets, and lease expiry. A real CPU Slurm smoke run also completed on Adroit. These checks do not establish GPU training performance, physical motor behavior, or live API grading quality.

@@ -188,7 +188,10 @@ def main():
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--state-dir", default=str(ROOT / ".armature"))
     p.add_argument("--config", default=str(ROOT / "bridge.local.json"))
+    p.add_argument("--preload-robot", action="store_true", help="Load the optional motor SDK before serving camera requests; does not connect motors")
     args = p.parse_args()
+    if args.preload_robot:
+        from lerobot.robots.so_follower.so_follower import SO101Follower  # noqa: F401
     config = json.loads(Path(args.config).read_text()) if Path(args.config).exists() else {}
     app = App(args.state_dir, config)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), functools.partial(Handler, app=app))

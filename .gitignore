@@ -14,3 +14,4 @@ vendor/
 bridge.local.json
 robot.local.json
 slurm.local.json
+.codex/config.toml
