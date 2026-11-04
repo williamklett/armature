@@ -95,6 +95,7 @@ class CoreTests(unittest.TestCase):
         cmd=command(e,'/tmp/out path','cuda')
         self.assertIn('--dataset.repo_id=lab/cubes',cmd)
         self.assertIn('--policy.optimizer_lr=2.5e-05',cmd)
+        self.assertIn('--trackio.enable=false',cmd)
         self.assertIn('--output_dir=/tmp/out path',cmd)
         self.assertEqual(metric_from_log('INFO step:1K smpl:8K loss:0.024'),{'step':1000,'loss':.024})
 

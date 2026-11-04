@@ -21,7 +21,7 @@ export function shellQuote(s){return "'"+String(s).replaceAll("'","'\"'\"'")+"'"
 export function slurmScript(exp){
   if(!['smolvla_sft','pi05_sft'].includes(exp.recipe))throw Error('Slurm export currently supports the two demonstration-training recipes. Configure RL through the runner integration.');
   if(!exp.dataset)throw Error('Add a dataset when creating or cloning this experiment.');
-  const args=[`--policy.path=${exp.checkpoint||recipes[exp.recipe].checkpoint}`,`--dataset.repo_id=${exp.dataset}`,`--batch_size=${exp.batch_size}`,`--steps=${exp.steps}`,`--seed=${exp.seed}`,`--policy.optimizer_lr=${exp.learning_rate}`,'--policy.device=cuda','--policy.push_to_hub=false','--wandb.enable=false'];
+  const args=[`--policy.path=${exp.checkpoint||recipes[exp.recipe].checkpoint}`,`--dataset.repo_id=${exp.dataset}`,`--batch_size=${exp.batch_size}`,`--steps=${exp.steps}`,`--seed=${exp.seed}`,`--policy.optimizer_lr=${exp.learning_rate}`,'--policy.device=cuda','--policy.push_to_hub=false','--trackio.enable=false'];
   return `#!/usr/bin/env bash\n#SBATCH --job-name=armature-${exp.recipe}\n#SBATCH --gres=gpu:1\n#SBATCH --cpus-per-task=4\n#SBATCH --mem=32G\n#SBATCH --time=04:00:00\n#SBATCH --output=armature-%j.log\n\nset -euo pipefail\n# Set ARMATURE_VENV to the tested environment before sbatch.\n: "\${ARMATURE_VENV:?Set ARMATURE_VENV to your LeRobot virtual environment}"\n: "\${ARMATURE_OUTPUT_ROOT:?Set ARMATURE_OUTPUT_ROOT to your scratch output directory}"\nsource "$ARMATURE_VENV/bin/activate"\n# Camera/action transforms must match your recorded dataset.\nlerobot-train \\\n  ${args.map(shellQuote).join(' \\\n  ')} \\\n  --output_dir="$ARMATURE_OUTPUT_ROOT/${exp.id}-\${SLURM_JOB_ID}"\n`;
 }
 export function download(name,value,type='application/json'){

@@ -18,7 +18,7 @@ def command(config, output, device):
             '--policy.device=' + device, '--output_dir=' + str(output),
             '--steps=' + str(config['steps']), '--batch_size=' + str(config['batch_size']),
             '--seed=' + str(config['seed']), '--policy.optimizer_lr=' + str(config['learning_rate']),
-            '--policy.push_to_hub=false', '--wandb.enable=false', '--log_freq=10']
+            '--policy.push_to_hub=false', '--trackio.enable=false', '--log_freq=10']
 
 
 def metric_from_log(line):
