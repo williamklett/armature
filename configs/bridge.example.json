@@ -1,0 +1,37 @@
+{
+  "allowed_origins": ["https://williamklett.github.io"],
+  "runners": {
+    "smolvla_sft": {
+      "cwd": "/absolute/path/to/armature",
+      "command": ["/absolute/path/to/armature/.venv-smolvla/bin/python", "scripts/lerobot_train.py", "--config", "{config_path}", "--output", "{output_dir}", "--device", "cuda"]
+    },
+    "pi05_sft": {
+      "cwd": "/absolute/path/to/armature",
+      "command": ["/absolute/path/to/armature/.venv-pi05/bin/python", "scripts/lerobot_train.py", "--config", "{config_path}", "--output", "{output_dir}", "--device", "cuda"]
+    },
+    "pi05_rl": {
+      "cwd": "/absolute/path/to/armature",
+      "command": ["/absolute/path/to/RLinf/.venv/bin/python", "scripts/rl_train.py", "--root", "/absolute/path/to/RLinf", "--config", "{config_path}", "--output", "{output_dir}"]
+    },
+    "smolvla_rl": {
+      "cwd": "/absolute/path/to/armature",
+      "command": ["/absolute/path/to/FlowVLA-RL/.venv/bin/python", "scripts/rl_train.py", "--root", "/absolute/path/to/FlowVLA-RL", "--config", "{config_path}", "--output", "{output_dir}"]
+    }
+  },
+  "robot": {
+    "enabled": false,
+    "port": "/dev/REPLACE_WITH_FOLLOWER_PORT",
+    "id": "armature_follower",
+    "calibration_dir": "/absolute/path/to/calibration",
+    "max_step": 1.0,
+    "max_gripper_step": 2.0,
+    "limits": {
+      "shoulder_pan": null,
+      "shoulder_lift": null,
+      "elbow_flex": null,
+      "wrist_flex": null,
+      "wrist_roll": null,
+      "gripper": null
+    }
+  }
+}

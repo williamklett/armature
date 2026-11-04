@@ -1,0 +1,15 @@
+.armature/
+.venv/
+.venv-*/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+outputs/
+checkpoints/
+vendor/
+bridge.local.json
+robot.local.json

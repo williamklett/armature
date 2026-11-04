@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-11-04",
+  "target_robot": "so101_follower",
+  "local_validation": "not_started",
+  "models": [
+    {
+      "id": "pi05",
+      "name": "π0.5",
+      "role": "primary_rl_research_candidate",
+      "lerobot_checkpoint": "lerobot/pi05_base",
+      "sft_backend": "lerobot_or_openpi",
+      "rl_backend_candidate": "rlinf",
+      "rl_evidence_scope": "documented_simulation_recipes",
+      "physical_so101_rl_ready": false,
+      "installed": false,
+      "sources": [
+        "https://github.com/Physical-Intelligence/openpi",
+        "https://huggingface.co/docs/lerobot/pi05",
+        "https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/pi0.html",
+        "https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/so101.html"
+      ]
+    },
+    {
+      "id": "smolvla",
+      "name": "SmolVLA",
+      "role": "lightweight_baseline",
+      "lerobot_checkpoint": "lerobot/smolvla_base",
+      "sft_backend": "lerobot",
+      "rl_backend_candidate": "experimental_flowvla_rl",
+      "rl_evidence_scope": "third_party_libero_results_not_reproduced",
+      "physical_so101_rl_ready": false,
+      "installed": false,
+      "sources": [
+        "https://huggingface.co/docs/lerobot/smolvla",
+        "https://github.com/BlackMirean/FlowVLA-RL"
+      ]
+    }
+  ],
+  "required_before_launch": [
+    "pin_backend_and_checkpoint_revisions",
+    "verify_compute_and_inference_path",
+    "validate_robot_observation_and_action_contracts",
+    "implement_task_reset_and_reward",
+    "validate_grader_against_human_labels",
+    "run_held_out_physical_evaluation"
+  ]
+}
