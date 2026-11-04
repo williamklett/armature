@@ -7,6 +7,7 @@ import time
 p = argparse.ArgumentParser()
 p.add_argument("--seed", type=int, default=42)
 p.add_argument("--episodes", type=int, default=200)
+p.add_argument("--learning-rate", type=float, default=0.2)
 a = p.parse_args()
 rng = random.Random(a.seed)
 q = [[0.0, 0.0] for _ in range(9)]
@@ -20,7 +21,7 @@ for episode in range(a.episodes):
         nxt = max(0, min(8, state + (-1 if action == 0 else 1)))
         reward = 1.0 if nxt == 8 else -0.04
         target = reward + (0 if nxt == 8 else 0.95 * max(q[nxt]))
-        q[state][action] += 0.2 * (target - q[state][action])
+        q[state][action] += a.learning_rate * (target - q[state][action])
         state, total = nxt, total + reward
         if state == 8:
             break

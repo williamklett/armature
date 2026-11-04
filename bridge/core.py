@@ -54,7 +54,7 @@ def experiment(data):
         "seed": number(data.get("seed", 42), 0, 2147483647, "Seed", True),
         "steps": number(data.get("steps", 20000), 1, 10000000, "Steps", True),
         "batch_size": number(data.get("batch_size", 8), 1, 4096, "Batch size", True),
-        "learning_rate": number(data.get("learning_rate", 0.0001), 1e-8, 1, "Learning rate"),
+        "learning_rate": number(data.get("learning_rate", {"toy_q": 0.2, "pi05_sft": 0.000025, "pi05_rl": 0.000005, "smolvla_rl": 0.000001}.get(recipe, 0.0001)), 1e-8, 1, "Learning rate"),
     }
 
 

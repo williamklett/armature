@@ -53,6 +53,8 @@ class Jobs:
             raise ValueError("Provide a LeRobot dataset repository before training")
         if recipe.endswith("_rl") and not exp["checkpoint"]:
             raise ValueError("Provide the matching SFT checkpoint before RL")
+        if recipe == "toy_q" and exp["steps"] > 500:
+            raise ValueError("The CPU pipeline check supports up to 500 episodes")
         with self.lock:
             if any(p.poll() is None for p in self.processes.values()):
                 raise ValueError("A local runner is already active. Finish or stop it before starting another.")
@@ -61,7 +63,7 @@ class Jobs:
             out.mkdir(parents=True)
             values = {**exp, "run_id": run_id, "output_dir": str(out / "training"), "config_path": str(out / "experiment.json")}
             if recipe == "toy_q":
-                command = [sys.executable, "-u", str(ROOT / "scripts/toy_train.py"), "--seed", str(exp["seed"]), "--episodes", str(min(exp["steps"], 500))]
+                command = [sys.executable, "-u", str(ROOT / "scripts/toy_train.py"), "--seed", str(exp["seed"]), "--episodes", str(exp["steps"]), "--learning-rate", str(exp["learning_rate"])]
                 cwd = ROOT
             else:
                 runner = self.runners[recipe]

@@ -56,9 +56,9 @@ function render(){
 
  app.innerHTML=page==='experiment'?detail(id):({overview,experiments,control,models,setup}[page]||overview)();if(page==='control'){updateCamera();drawSandbox();drawArm();}
 }
-async function refresh(){const current=bridge;const next=current?await current.request('library'):await local.snapshot();if(current===bridge)library=next;}
+async function refresh(){const current=bridge;const next=current?await current.request('library'):await local.snapshot();if(current!==bridge)return false;const changed=JSON.stringify(library)!==JSON.stringify(next);library=next;return changed;}
 function newDialog(recipeId='smolvla_sft',copy){
- const d={name:'',task:'Place the block in the tray.',owner:'',recipe:recipeId,dataset:'',checkpoint:recipes[recipeId].checkpoint,seed:42,steps:recipeId==='toy_q'?200:20000,batch_size:8,learning_rate:recipeId==='pi05_sft'?0.000025:recipeId==='pi05_rl'?0.000005:0.0001,rubric:rubricDefault,notes:'',...copy};if(copy)d.name+=' · copy';
+ const d={name:'',task:'Place the block in the tray.',owner:'',recipe:recipeId,dataset:'',checkpoint:recipes[recipeId].checkpoint,seed:42,steps:recipeId==='toy_q'?200:20000,batch_size:8,learning_rate:({toy_q:.2,pi05_sft:.000025,pi05_rl:.000005,smolvla_rl:.000001})[recipeId]??.0001,rubric:rubricDefault,notes:'',...copy};if(copy)d.name+=' · copy';
  const input=(name,label,type='text')=>`<div class="form-field"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" type="${type}" value="${esc(d[name])}" ${type==='number'?'step="any"':''}></div>`;
  $('#experiment-dialog').innerHTML=`<form id="experiment-form"><div class="dialog-head"><div><h2 id="dialog-title">${copy?'Clone experiment':'New experiment'}</h2></div><button class="icon" type="button" data-action="close" aria-label="Close">×</button></div><div class="dialog-body"><div class="form-grid">${input('name','Experiment name')}${input('owner','Owner')}<div class="form-field full"><label for="f-recipe">Recipe</label><select name="recipe" id="f-recipe">${Object.entries(recipes).map(([id,r])=>`<option value="${id}" ${id===d.recipe?'selected':''}>${esc(r.name)} — ${esc(r.kind)}</option>`).join('')}</select></div><div class="form-field full"><label for="f-task">Task</label><textarea name="task" id="f-task" required>${esc(d.task)}</textarea></div>${input('dataset','LeRobot dataset')}${input('checkpoint','Starting checkpoint')}${input('steps','Steps / toy episodes','number')}${input('batch_size','Batch size','number')}${input('seed','Seed','number')}${input('learning_rate','Learning rate','number')}<div class="form-field full"><label for="f-rubric">Grading rubric</label><textarea id="f-rubric" name="rubric" required>${esc(d.rubric)}</textarea></div><div class="form-field full"><label for="f-notes">Notes</label><textarea id="f-notes" name="notes" rows="2">${esc(d.notes)}</textarea></div></div><div class="dialog-error" id="form-error" role="alert"></div></div><div class="dialog-footer"><button class="button secondary" type="button" data-action="close">Cancel</button><button class="button" type="submit">Save experiment →</button></div></form>`;
  $('#experiment-dialog').showModal();$('#f-name').focus();
@@ -130,7 +130,7 @@ document.addEventListener('submit',async event=>{
 document.addEventListener('input',event=>{if(event.target.id==='experiment-search'){const term=event.target.value.toLowerCase();$('#experiment-table').innerHTML=experimentTable(library.experiments.filter(e=>(e.name+' '+e.task+' '+e.owner+' '+recipe(e).model).toLowerCase().includes(term)));}});
 document.addEventListener('change',async event=>{
  try{
-  if(event.target.id==='f-recipe'){const id=event.target.value;$('#f-checkpoint').value=recipes[id].checkpoint;$('#f-learning_rate').value=id==='pi05_sft'?0.000025:id==='pi05_rl'?0.000005:0.0001;if(id==='toy_q')$('#f-steps').value=200;}
+  if(event.target.id==='f-recipe'){const id=event.target.value;$('#f-checkpoint').value=recipes[id].checkpoint;$('#f-learning_rate').value=({toy_q:.2,pi05_sft:.000025,pi05_rl:.000005,smolvla_rl:.000001})[id]??.0001;if(id==='toy_q')$('#f-steps').value=200;}
   if(event.target.id==='episode-experiment')selectedExperiment=event.target.value;
   if(event.target.id==='camera-device')await camera.start(event.target.value);
   if(event.target.id==='import-backup'){
@@ -204,7 +204,7 @@ try{
 }catch{sessionStorage.removeItem('armature-connection');}
 setInterval(async()=>{
  if(!bridge||pollBusy)return;pollBusy=true;
- try{await refresh();const page=location.hash.slice(1).split('/')[0];if(!['control','setup'].includes(page)&&!document.querySelector('dialog[open]')&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){const scroll=window.scrollY;render();window.scrollTo(0,scroll);}}
+ try{const changed=await refresh();const page=location.hash.slice(1).split('/')[0];if(changed&&!['control','setup'].includes(page)&&!document.querySelector('dialog[open]')&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){const scroll=window.scrollY;render();window.scrollTo(0,scroll);}}
  catch{ /* Keep the existing library visible; actions report connection errors. */ }
  finally{pollBusy=false;}
 },3000);
