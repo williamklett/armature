@@ -126,12 +126,15 @@ class MCPTests(unittest.TestCase):
             self.skipTest('Install MCP controller environment')
         class Bridge:
             def __init__(self): self.calls = []
-            def snapshot(self):
+            def snapshot(self, **kwargs):
                 return {'frame': {'data_url': 'data:image/jpeg;base64,YWJj', 'frame_id': 'test'},
-                        'arm': {'positions': {'wrist_flex': 12}}, 'state_frame_skew_seconds': .2}
+                        'arm': {'positions': {'wrist_flex': 12}, 'limits': {'wrist_flex': [-90, 90]},
+                                'connected': True, 'fault': '', 'motion': None}, 'state_frame_skew_seconds': .2}
             def action(self, *args, **kwargs):
                 self.calls.append((args, kwargs))
                 return {'stopped': True}
+            def run(self, target, speed):
+                self.calls.append(('run', target, speed))
         bridge = Bridge()
         async def check():
             async with Client(build_server(bridge)) as client:
@@ -145,6 +148,15 @@ class MCPTests(unittest.TestCase):
                 result = await client.call_tool('arm_stop', {})
                 self.assertFalse(result.is_error)
                 self.assertEqual(bridge.calls, [(('stop',), {})])
+                bridge.calls.clear()
+                bad = await client.call_tool('arm_steer', {'experiment_id': 'test', 'deltas': {'wrist_flex': 11}})
+                self.assertTrue(bad.is_error)
+                self.assertIn('Steering delta', bad.content[0].text)
+                self.assertEqual(bridge.calls, [])
+                good = await client.call_tool('arm_steer', {'experiment_id': 'test', 'deltas': {'wrist_flex': 2}})
+                self.assertFalse(good.is_error)
+                self.assertEqual(bridge.calls, [(('start',), {'experiment_id': 'test'}), ('run', {'wrist_flex': 14}, 4)])
+                self.assertEqual(good.content[1].type, 'image')
         asyncio.run(check())
 
 

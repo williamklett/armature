@@ -3,13 +3,16 @@ import argparse
 import json
 import sys
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 from controller.client import BridgeClient
+from bridge.core import number
 
 
 def build_server(client):
@@ -27,14 +30,19 @@ def build_server(client):
     @contextmanager
     def exclusive():
         if not movement.acquire(blocking=False):
-            raise ValueError('Another controller operation is active; observe or stop it first')
+            raise ToolError('Another controller operation is active; observe or stop it first')
         try:
             yield
+        except (ValueError, RuntimeError) as error:
+            raise ToolError(str(error)) from None
         finally:
             movement.release()
 
-    def observation(extra=None):
-        snapshot = client.snapshot()
+    def observation(extra=None, after=0):
+        try:
+            snapshot = client.snapshot(after=after)
+        except (ValueError, RuntimeError) as error:
+            raise ToolError(str(error)) from None
         frame = dict(snapshot['frame'])
         url = frame.pop('data_url')
         metadata = {**snapshot, 'frame': frame, **(extra or {})}
@@ -64,6 +72,37 @@ def build_server(client):
         with exclusive():
             return client.action('execute', plan_id=plan_id)
 
+    @server.tool(annotations=write)
+    def arm_steer(experiment_id: str, deltas: dict[str, float], speed: float = 4) -> CallToolResult:
+        """Steer from the camera: a short relative joint input, then a NEW camera image.
+
+        Body deltas are degrees (max 10); gripper deltas are percentage points
+        (max 20). Explicitly starts a healthy session for this requested action.
+        Does not connect motors, clear faults, retry motion, or claim a grasp.
+        Observe the returned image before choosing the next input.
+        """
+        with exclusive():
+            before = client.snapshot()
+            state = before['arm']
+            if not state['connected'] or state['fault']:
+                raise ValueError('Connect and inspect the arm before steering')
+            if state.get('motion') and state['motion']['state'] == 'running':
+                raise ValueError('Wait for the current motion or stop it first')
+            if not deltas or set(deltas) - set(state['positions']):
+                raise ValueError('Specify known joint deltas')
+            speed = number(speed, 1, 6, 'Steering speed')
+            target = {}
+            for joint, delta in deltas.items():
+                bound = 20 if joint == 'gripper' else 10
+                delta = number(delta, -bound, bound, 'Steering delta')
+                target[joint] = number(state['positions'][joint] + delta, *state['limits'][joint], joint)
+            client.action('start', experiment_id=experiment_id)
+            started = time.monotonic()
+            client.run(target, speed=speed)
+            return observation({'steering': {'deltas': deltas, 'target': target,
+                'before_frame_id': before['frame']['frame_id'],
+                'motion_seconds': time.monotonic() - started}}, after=time.time())
+
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False))
     def arm_stop() -> dict:
         """Preempt movement and request a current-pose hold; torque remains enabled."""
@@ -92,7 +131,7 @@ def build_server(client):
         two independent probes per selected joint before using visual_reach.
         """
         if visual is None:
-            raise ValueError('Initialize visual control first')
+            raise ToolError('Initialize visual control first')
         with exclusive():
             result = visual.step(delta, speed)
             return observation({'transition': result})
@@ -105,7 +144,7 @@ def build_server(client):
         replans locally without LLM round trips. 2D reaching is not a grasp/depth check.
         """
         if visual is None:
-            raise ValueError('Initialize visual control and collect independent probes first')
+            raise ToolError('Initialize visual control and collect independent probes first')
         with exclusive():
             result = visual.reach(goal_xy, max_steps, tolerance_px, speed)
             return observation({'evaluation': result})
