@@ -169,6 +169,19 @@ class HTTPTests(unittest.TestCase):
         self.assertFalse(json.loads(reviewed[2])['human_success'])
         self.assertEqual(self.request('/api/arm/action','POST',{'action':'connect'})[0],400)
 
+    def test_live_camera_auth_frame_and_revocation(self):
+        self.assertEqual(self.request('/api/camera/start','POST',{},auth=False)[0],401)
+        lease=json.loads(self.request('/api/camera/start','POST',{})[2])['lease']
+        frame={**FRAME,'captured_at':time.time()}
+        self.assertEqual(self.request('/api/camera/frame','POST',{'lease':lease,'frame':frame})[0],200)
+        status,_,body=self.request('/api/camera/frame')
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(body)['data_url'],frame['data_url'])
+        self.assertEqual(self.request('/api/camera/frame',auth=False)[0],401)
+        self.request('/api/camera/stop','POST',{'lease':lease})
+        self.assertEqual(self.request('/api/camera/frame')[0],400)
+        self.assertEqual(self.request('/api/camera/frame','POST',{'lease':lease,'frame':frame})[0],400)
+
 
 class FakeArm:
     def __init__(self):

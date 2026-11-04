@@ -56,6 +56,36 @@ export class Camera{
   stop(){this.serial++;const old=this.stream;this.stream=null;if(old)old.getTracks().forEach(t=>t.stop());this.onChange();}
   capture(video,canvas){if(!this.stream||!video.videoWidth)throw Error('Wait for a camera frame before capturing.');canvas.width=Math.min(video.videoWidth,800);canvas.height=Math.round(video.videoHeight*canvas.width/video.videoWidth);canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);return {data_url:canvas.toDataURL('image/jpeg',0.8),captured_at:Date.now()/1000};}
 }
+export class AgentView{
+  constructor(onChange=()=>{},onError=()=>{},schedule=(...args)=>setTimeout(...args),cancel=id=>clearTimeout(id)){Object.assign(this,{onChange,onError,schedule,cancel,serial:0,lease:null,bridge:null,timer:null});}
+  get active(){return !!this.lease;}
+  async stop(){
+    this.serial++;this.cancel(this.timer);this.timer=null;
+    const bridge=this.bridge,lease=this.lease;this.bridge=null;this.lease=null;this.onChange();
+    if(bridge&&lease)await bridge.request('camera/stop',{lease}).catch(()=>{});
+  }
+  async start(bridge,capture){
+    const serial=this.serial+1;
+    await this.stop();
+    if(serial!==this.serial)return;
+    const {lease}=await bridge.request('camera/start',{});
+    if(serial!==this.serial){await bridge.request('camera/stop',{lease}).catch(()=>{});return;}
+    this.bridge=bridge;this.lease=lease;
+    const send=async(first=false)=>{
+      try{
+        if(serial!==this.serial)return;
+        await bridge.request('camera/frame',{lease,frame:capture()});
+        if(serial===this.serial){this.onChange();this.timer=this.schedule(()=>send(),500);}
+      }catch(error){
+        if(serial!==this.serial)return;
+        await this.stop();
+        if(first)throw error;
+        this.onError(error);
+      }
+    };
+    await send(true);
+  }
+}
 export function validateBackup(data){
   if(data?.format!=='armature-backup-v1'||!data.library)throw Error('Choose an Armature backup JSON file.');
   const lib=data.library;

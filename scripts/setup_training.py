@@ -60,7 +60,7 @@ def main():
     if not uv:
         raise SystemExit('Install uv from https://docs.astral.sh/uv/getting-started/installation/')
     env = (args.directory or ROOT / ('.venv-' + args.model)).resolve()
-    extras = {'smolvla': 'training,smolvla', 'pi05': 'training,pi', 'robot': 'core_scripts,feetech'}[args.model]
+    extras = {'smolvla': 'training,smolvla', 'pi05': 'training,pi', 'robot': 'hardware,feetech'}[args.model]
     spec = 'lerobot[%s] @ git+https://github.com/huggingface/lerobot.git@%s' % (extras, REVISION)
     commands = [[uv, 'venv', '--python', '3.12', str(env)], [uv, 'pip', 'install', '--python', str(env / 'bin/python'), spec]]
     if env.exists():

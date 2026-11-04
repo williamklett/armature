@@ -16,6 +16,7 @@ from .core import RECIPES, Sandbox, Store, experiment, string, uid
 from .grader import grade, validate_frames
 from .jobs import Jobs
 from .robot import PhysicalArm
+from .vision import CameraFeed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,12 +35,23 @@ class App:
         self.store = Store(self.state_dir / "armature.sqlite3")
         self.jobs = Jobs(self.store, self.state_dir, self.config)
         self.robot = Sandbox(self.store)
-        self.arm = PhysicalArm(self.store, self.config.get("robot"))
+        self.camera = CameraFeed()
+        self.arm = PhysicalArm(self.store, self.config.get("robot"), camera_ready=self.camera.ready)
         self.grading = set()
         self.grade_lock = threading.Lock()
 
     def route(self, method, path, data):
         bits = path.strip("/").split("/")
+        if method == "GET" and path == "/api/camera/status":
+            return self.camera.status()
+        if method == "GET" and path == "/api/camera/frame":
+            return self.camera.frame()
+        if method == "POST" and path == "/api/camera/start":
+            return self.camera.start()
+        if method == "POST" and path == "/api/camera/frame":
+            return self.camera.put(data.get("lease"), data.get("frame"))
+        if method == "POST" and path == "/api/camera/stop":
+            return self.camera.stop(data.get("lease"))
         if method == "GET" and path == "/api/status":
             return {"version": "0.1.0", "storage": "Laptop SQLite", "robot": self.arm.status(), "physical_robot_connected": self.arm.status()["connected"], "grader_ready": bool(os.environ.get("OPENAI_API_KEY") and os.environ.get("ARMATURE_GRADER_MODEL")), "grader_model": os.environ.get("ARMATURE_GRADER_MODEL", ""), "recipes": RECIPES, "runners": self.jobs.availability()}
         if method == "GET" and path == "/api/library":

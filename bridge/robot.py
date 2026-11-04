@@ -8,10 +8,40 @@ from .core import number, string, uid
 JOINTS = ('shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper')
 
 
+def configure_position_hold(robot, limits):
+    """Configure the pinned SO101 bus, seeding current goals before torque on."""
+    bus = robot.bus
+    bus.disable_torque()
+    # Do not use torque_disabled(): its finally block enables torque on failure.
+    bus.configure_motors()
+    for joint in JOINTS:
+        bus.set_operating_mode('position', joint)
+        bus.write('P_Coefficient', joint, robot.config.position_p_coefficient)
+        bus.write('I_Coefficient', joint, robot.config.position_i_coefficient)
+        bus.write('D_Coefficient', joint, robot.config.position_d_coefficient)
+        bus.write('Goal_Velocity', joint, 100, normalize=False)
+        if joint == 'gripper':
+            bus.write('Max_Torque_Limit', joint, 500)
+            bus.write('Protection_Current', joint, 250)
+            bus.write('Overload_Torque', joint, 25)
+    current = bus.sync_read('Present_Position')
+    for joint in JOINTS:
+        number(current[joint], *limits[joint], joint)
+    raw = bus.sync_read('Present_Position', normalize=False)
+    bus.sync_write('Goal_Position', raw, normalize=False)
+    goals = bus.sync_read('Goal_Position', normalize=False)
+    if any(goals[joint] != raw[joint] for joint in JOINTS):
+        raise ValueError('Initial hold targets did not verify; torque remains off')
+    bus.enable_torque()
+
+
 def lerobot_factory(config):
     from lerobot.robots.so_follower.config_so_follower import SO101FollowerConfig
     from lerobot.robots.so_follower.so_follower import SO101Follower
     class CalibratedFollower(SO101Follower):
+        def configure(self):
+            configure_position_hold(self, config['limits'])
+
         def calibrate(self):
             # LeRobot checks calibration before configuring motor torque.
             # Never enter an interactive calibration flow from a web request.
@@ -27,8 +57,9 @@ def lerobot_factory(config):
 
 
 class PhysicalArm:
-    def __init__(self, store, config=None, factory=lerobot_factory, watchdog=True):
+    def __init__(self, store, config=None, factory=lerobot_factory, watchdog=True, camera_ready=lambda: False):
         self.store, self.config, self.factory = store, config or {}, factory
+        self.camera_ready = camera_ready
         self.lock = threading.RLock()
         self.robot = None
         self.stopped = True
@@ -45,7 +76,14 @@ class PhysicalArm:
 
     def status(self):
         return {'configured': self.config.get('enabled') is True, 'connected': self.robot is not None,
-                'stopped': self.stopped, 'fault': self.fault, 'mode': 'so101'}
+                'stopped': self.stopped, 'fault': self.fault, 'mode': 'so101',
+                'camera_required': self.config.get('require_camera', False), 'camera_ready': self.camera_ready()}
+
+    def _require_camera(self):
+        if self.config.get('require_camera') and not self.camera_ready():
+            if self.robot and not self.stopped:
+                self._stop('Camera feed lost')
+            raise ValueError('Fresh camera feed required; enable Agent view')
 
     def _config(self):
         if self.config.get('enabled') is not True:
@@ -110,8 +148,10 @@ class PhysicalArm:
                 if self.robot:
                     raise ValueError('Arm already connected')
                 self._config()
+                self._require_camera()
                 robot = self.factory(self.config)
                 try:
+                    self._require_camera()
                     robot.connect(calibrate=True)
                     if not robot.is_calibrated:
                         raise ValueError('Calibration does not match the motors')
@@ -133,6 +173,7 @@ class PhysicalArm:
                 self.robot = None
                 return self.observe()
             if action == 'start':
+                self._require_camera()
                 self.store.get('experiments', data.get('experiment_id'))
                 if self.fault:
                     raise ValueError(self.fault)
@@ -150,6 +191,7 @@ class PhysicalArm:
                 raise ValueError('Unknown arm action')
             if self.stopped or self.fault:
                 raise ValueError('Arm is stopped')
+            self._require_camera()
             now = time.monotonic()
             if data.get('revision') != self.revision or now - self.observation_time > 0.75:
                 raise ValueError('Stale observation; observe again')
@@ -186,8 +228,11 @@ class PhysicalArm:
     def _watch(self):
         while not self.closed.wait(0.1):
             with self.lock:
-                if self.robot and not self.stopped and time.monotonic() - self.last_action > 10:
-                    self._stop('Idle timeout')
+                if self.robot and not self.stopped:
+                    if self.config.get('require_camera') and not self.camera_ready():
+                        self._stop('Camera feed lost')
+                    elif time.monotonic() - self.last_action > 10:
+                        self._stop('Idle timeout')
 
     def close(self):
         self.closed.set()

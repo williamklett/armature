@@ -20,6 +20,16 @@ Control room → **Enable camera** requests camera permission only after the cli
 
 A live preview stays on the laptop. Saving an episode sends its captured frames to the selected bridge, or stores them in the browser when disconnected. **Grade with OpenAI** is a separate upload action. Camera frames are included in backup exports. Browser permission, physical UVC availability, and supported modes must be checked on the actual device.
 
+**Agent view** explicitly shares fresh preview frames with the authenticated bridge at up to two frames per second. Only the latest frame is held in memory; it is unavailable after three seconds, and stopping sharing clears it. Live frames are not saved as episodes or included in backups. Turning off the camera, changing its device, leaving Control room, hiding the tab, or disconnecting the bridge ends sharing. Frozen video frames and failed uploads also stop sharing. Clients with the bridge token can retrieve the shared image; opening the dashboard alone does not start sharing.
+
+An assistant can retrieve an image for visual inspection without a separate paid grading request:
+
+```bash
+python3 scripts/agent.py camera --port 8787 --output .armature/current-view.jpg
+```
+
+This explicitly saves the retrieved frame locally. For the physical controller, set `robot.require_camera` to `true` (as in the example). Connecting, starting, and jogging then require a fresh shared frame. Losing the feed requests a hold and stops the session. This checks feed freshness; it does not detect collisions, prove that an assistant inspected the image, or replace calibration and joint limits. Keep the whole arm, base, gripper, and nearby workspace in view.
+
 ## GitHub Pages and roommates
 
 The workflow in `.github/workflows/pages.yml` runs tests and deploys only `web/`. Set repository **Settings → Pages → Source: GitHub Actions**. The dashboard works without a bridge using IndexedDB; each browser has its own library. Export/import transfers browser libraries.
@@ -101,13 +111,17 @@ This adapter is tested with mocked API responses. No real camera frame or paid A
 Physical control is opt-in and disabled by default. No motor connection is opened when the app or bridge starts.
 
 1. Prepare a LeRobot robot environment with `python3 scripts/setup_training.py robot`.
-2. Calibrate the arm through LeRobot. Set the serial port, matching calibration ID and directory, and measured joint limits in `bridge.local.json`. Limits are intentionally blank in the example. Body joint units are degrees; the gripper uses 0–100. This adapter targets the pinned `so_follower` API.
+2. Calibrate the arm with `.venv-robot/bin/python scripts/calibrate_arm.py --port /dev/cu.YOUR_ARM`. This uses LeRobot's interactive calibration with torque off throughout and saves under `.armature/calibration`. Set the serial port, matching calibration ID and directory, and measured joint limits in `bridge.local.json`. Limits are intentionally blank in the example. Body joint units are degrees; the gripper uses 0–100. This adapter targets the pinned `so_follower` API.
 3. Run the bridge with that environment's Python. Set `robot.enabled` to true only after local calibration and limit checks.
-4. In Control room, **Connect motors** opens the bus and configures motor torque. Select an experiment and start a session before jogging. The UI issues 0.5-unit steps; server and LeRobot impose per-step limits.
+4. In Control room, **Connect motors** opens the bus, configures the motors, verifies that the measured pose is within limits, and seeds and verifies current-position targets before enabling holding torque. A failed configuration leaves torque off. Select an experiment and start a session before jogging. The UI issues 0.5-unit steps; server and LeRobot impose per-step limits.
 
 The controller rejects stale observations, replayed revisions, excessive steps, out-of-range targets, and commands while stopped. It latches on communication failures and stops after 10 seconds without an action. Software **Stop** requests a hold at the measured position; it is not a hardware emergency stop or a collision detector. Disconnect and normal bridge shutdown retain holding torque; support the arm locally before removing power. Joint limits alone do not establish a collision-free workspace.
 
-The physical adapter is tested against a fake motor bus; physical calibration, serial communication, and motion have not been validated on the user's arm. The separate 2D sandbox needs no hardware.
+Software holds and camera-loss checks require a running bridge. If the laptop loses power, a servo can remain powered at its last target; keep the arm's power disconnect accessible.
+
+The physical adapter is tested against a fake motor bus. Serial communication and a separate supervised, low-torque gripper test have been verified on one SO101; calibration and the calibrated web-control path remain unvalidated on that arm. The separate 2D sandbox needs no hardware.
+
+`scripts/probe_arm.py --port /dev/cu.YOUR_ARM` reads the six expected SO101 motor IDs, raw positions, torque state, and stored calibration registers. Run it with the robot environment's Python. It does not configure the motors, change torque, or send position targets. Stored limits alone do not prove that the arm was properly calibrated or that the current workspace is clear.
 
 An assistant can use the same authenticated APIs through `scripts/agent.py`. It reads the local token file without printing it. For example:
 

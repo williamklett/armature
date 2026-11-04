@@ -20,6 +20,7 @@
   },
   "robot": {
     "enabled": false,
+    "require_camera": true,
     "port": "/dev/REPLACE_WITH_FOLLOWER_PORT",
     "id": "armature_follower",
     "calibration_dir": "/absolute/path/to/calibration",
