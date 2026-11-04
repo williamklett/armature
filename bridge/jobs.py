@@ -38,6 +38,8 @@ class Jobs:
                 result[key] = {"ready": False, "reason": "Use the Control room to start a session"}
             elif not runner:
                 result[key] = {"ready": False, "reason": "Configure this runner in bridge.local.json"}
+            elif not runner.get("enabled", True):
+                result[key] = {"ready": False, "reason": runner.get("reason", "Runner disabled")}
             else:
                 command = runner.get("command", [])
                 executable = bool(command and isinstance(command, list) and isinstance(command[0], str) and shutil.which(command[0]))
@@ -98,6 +100,14 @@ class Jobs:
                 log.flush()
                 line = line.rstrip()[:2000]
                 metric = None
+                remote = None
+                if line.startswith("ARMATURE_REMOTE "):
+                    try:
+                        candidate = json.loads(line[len("ARMATURE_REMOTE "):])
+                        if re.fullmatch(r"[0-9]+", str(candidate.get("job_id", ""))):
+                            remote = {k: str(candidate[k])[:500] for k in ("job_id", "state", "directory", "exit_code") if k in candidate}
+                    except (ValueError, TypeError, AttributeError):
+                        pass
                 if line.startswith("ARMATURE_METRIC "):
                     try:
                         candidate = json.loads(line[len("ARMATURE_METRIC "):])
@@ -110,6 +120,8 @@ class Jobs:
                     r["logs"] = (r["logs"] + [line])[-600:]
                     if metric:
                         r["metrics"] = (r["metrics"] + [metric])[-10000:]
+                    if remote:
+                        r["remote"] = remote
                 self.store.change("runs", run_id, append)
         code = process.wait()
         process.stdout.close()
@@ -129,8 +141,9 @@ class Jobs:
             except ProcessLookupError:
                 pass
             def kill_later():
+                timeout = max(5, min(60, self.runners.get(run['config']['recipe'], {}).get('stop_timeout', 5)))
                 try:
-                    p.wait(timeout=5)
+                    p.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:
                     try:
                         os.killpg(p.pid, signal.SIGKILL)
@@ -147,4 +160,4 @@ class Jobs:
                 except ValueError:
                     pass
         for watcher in self.watchers:
-            watcher.join(timeout=7)
+            watcher.join(timeout=62)

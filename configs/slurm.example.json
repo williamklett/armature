@@ -1,0 +1,12 @@
+{
+  "ssh": ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "USER@CLUSTER"],
+  "root": "/scratch/USER/armature",
+  "resources": {"partition": "gpu", "gres": "gpu:1", "cpus-per-task": 4, "mem": "64G", "time": "04:00:00"},
+  "smoke_resources": {"partition": "all", "cpus-per-task": 1, "mem": "1G", "time": "00:03:00"},
+  "models": {
+    "smolvla_sft": {"python": "/scratch/USER/armature/.venv-smolvla/bin/python"},
+    "pi05_sft": {"python": "/scratch/USER/armature/.venv-pi05/bin/python", "resources": {"constraint": "gpu80"}},
+    "smolvla_rl": {"python": "/scratch/USER/armature/FlowVLA-RL/.venv/bin/python", "backend_root": "/scratch/USER/armature/FlowVLA-RL"},
+    "pi05_rl": {"python": "/scratch/USER/armature/RLinf/.venv/bin/python", "backend_root": "/scratch/USER/armature/RLinf", "resources": {"constraint": "gpu80"}}
+  }
+}

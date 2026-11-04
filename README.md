@@ -49,11 +49,33 @@ python3 scripts/setup_training.py pi05
 
 These create separate Python 3.12 environments using LeRobot revision `9e5ee9859480e425a97a6836bb3fee479539beb5`. They install dependencies, not checkpoints. Training downloads the selected checkpoint on first launch. Model licenses and any gated Hub access still apply. The setup commands have a `--dry-run` option.
 
+On a quota-limited machine, install one environment at a time. `--budget-root /path/to/armature --max-disk-gib 8` stops installation when that directory reaches the allocation. Put `UV_CACHE_DIR` and `UV_PYTHON_INSTALL_DIR` inside that directory so downloads and Python count toward the same limit. Check the cluster's actual quota first and leave additional headroom for in-flight writes; this guard is not a filesystem quota.
+
 Configure the corresponding runner paths in `bridge.local.json`. Choose `cuda` for NVIDIA training; `mps` is an option for SmolVLA on an appropriate Mac, subject to backend compatibility and measured latency. Record demonstrations with [LeRobot](https://huggingface.co/docs/lerobot/so101) before starting SFT. The dataset must have matching camera names, action units, frame rate, and calibration. Armature's sparse camera review frames are **not** a LeRobot training dataset.
 
 The SFT adapter passes the selected dataset, checkpoint, step count, batch size, seed, and optimizer learning rate. It retains raw logs and translates LeRobot's logged loss into chart metrics. Each run stores its configuration and resolved argv under `.armature/runs/<id>/`. Saved configurations are immutable; clone one to change it.
 
 An SFT experiment also exports a Slurm job. Set `ARMATURE_VENV` and `ARMATURE_OUTPUT_ROOT` before `sbatch`, and adjust the partition/account/GPU/memory/time directives to the actual allocation. The example's single-GPU request is not a claim that π0.5 fits any GPU. Exported cluster jobs are not automatically monitored or cancelled by the local bridge.
+
+### Launch on a cluster from the dashboard
+
+Copy `configs/slurm.example.json` to the ignored `slurm.local.json`. Configure the SSH destination (or existing control socket), writable remote directory, Slurm resources, and each environment's Python path. The examples need adapting to your cluster. [Adroit's documentation](https://researchcomputing.princeton.edu/systems/adroit) describes its GPU constraints and scratch storage.
+
+Register this command for each recipe in `bridge.local.json`, using absolute local paths:
+
+```json
+{
+  "cwd": "/path/to/armature",
+  "stop_timeout": 60,
+  "command": ["/path/to/python3", "-B", "/path/to/armature/scripts/slurm_train.py", "--profile", "/path/to/armature/slurm.local.json", "--config", "{config_path}", "--output", "{output_dir}", "--run-id", "{run_id}"]
+}
+```
+
+Set `enabled: false` and a `reason` while preparing an environment. The profile is a trusted operator file; the web client cannot change it. Experiment values travel through JSON over SSH, not through shell interpolation.
+
+The runner stages an immutable configuration and adapter source, submits one Slurm job, saves its job ID in the run record and `remote.json`, streams logs/metrics, and reports the scheduler's terminal state. **Stop** requests `scancel`. The laptop must remain awake and the bridge must stay running: a compute-node supervisor terminates training if its lease has not been renewed for 120 seconds. A queued job whose lease expired exits before starting training. An SSH outage can prevent immediate cancellation; inspect Slurm before relaunching after an uncertain failure. Checkpoints remain in the remote run directory; they are not copied to the browser.
+
+For a CPU-only integration check, run the adapter with `--smoke`, a toy experiment JSON, a fresh 32-character lowercase hexadecimal `--run-id`, and `smoke_resources` suited to the cluster. This exercises actual submission and log streaming without downloading a VLA or using a GPU.
 
 ### Simulation RL
 
@@ -118,4 +140,4 @@ python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 node --check web/app.js
 ```
 
-Tests cover camera opt-in/lifecycle, config validation, export quoting, backup validation, SQLite persistence, real toy job completion and cancellation, HTTP authentication/CORS/pairing, episode review, structured grading failures, and bounded control against a fake motor bus. They do not establish GPU training performance, physical motor behavior, or live API grading quality.
+Tests cover camera opt-in/lifecycle, config validation, export quoting, backup validation, SQLite persistence, real toy job completion and cancellation, HTTP authentication/CORS/pairing, episode review, structured grading failures, bounded control against a fake motor bus, and Slurm submission idempotence, cancellation, log offsets, and lease expiry. A real CPU Slurm smoke run also completed on Adroit. These checks do not establish GPU training performance, physical motor behavior, or live API grading quality.
